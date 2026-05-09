@@ -2,8 +2,10 @@ name: WTI Oil Alert
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/15 * * * *'  # fallback gdyby pinger padł
   workflow_dispatch:
+  repository_dispatch:
+    types: [poll-price]
 
 permissions:
   contents: write

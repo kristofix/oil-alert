@@ -5,7 +5,7 @@ import pathlib
 import requests
 
 STATE_FILE = pathlib.Path(__file__).parent / "state.json"
-THRESHOLD_PCT = 1.0
+THRESHOLD_PCT = 0.7
 SYMBOL = "xyz:CL"
 DEX = "xyz"
 API = "https://api.hyperliquid.xyz/info"

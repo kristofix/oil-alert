@@ -1,6 +1,6 @@
 # WTI Oil Alert (Hyperliquid → Telegram)
 
-Powiadomienia o ruchu ceny WTI (`xyz:CL`) na Hyperliquid 24/7. Cron co 15 min, alert gdy `|Δ| ≥ 1%` vs poprzedni check.
+Powiadomienia o ruchu ceny WTI (`xyz:CL`) na Hyperliquid 24/7. Trigger co 2 min (cron-job.org → GH webhook), alert gdy `|Δ| ≥ 0.7%` vs poprzedni check. GH cron 15 min jako fallback.
 
 ## Setup (jednorazowy)
 

@@ -35,23 +35,23 @@ def send_tg(msg: str) -> None:
 def main() -> None:
     price = get_price()
     state = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {"last_price": price}
-    last = float(state["last_price"])
-    pct = (price - last) / last * 100.0
+    anchor = float(state["last_price"])
+    pct = (price - anchor) / anchor * 100.0
 
     if abs(pct) >= THRESHOLD_PCT:
         direction = "WZROST" if pct > 0 else "SPADEK"
         msg = (
             f"*WTI {direction}* `${price:.2f}` "
-            f"({pct:+.2f}% / 15min)\n"
+            f"({pct:+.2f}% vs anchor `${anchor:.2f}`)\n"
             f"Hyperliquid `xyz:CL`"
         )
         send_tg(msg)
-        print(f"ALERT sent: {pct:+.2f}% {last:.2f} -> {price:.2f}")
+        state["last_price"] = price
+        state["last_alert_ts"] = int(time.time())
+        print(f"ALERT sent: {pct:+.2f}% {anchor:.2f} -> {price:.2f}")
     else:
-        print(f"OK: {pct:+.2f}% {last:.2f} -> {price:.2f} (below {THRESHOLD_PCT}%)")
+        print(f"OK: {pct:+.2f}% (anchor {anchor:.2f}, now {price:.2f}, below {THRESHOLD_PCT}%)")
 
-    state["last_price"] = price
-    state["last_ts"] = int(time.time())
     STATE_FILE.write_text(json.dumps(state, indent=2))
 
 

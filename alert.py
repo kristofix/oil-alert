@@ -1,0 +1,59 @@
+import os
+import json
+import time
+import pathlib
+import requests
+
+STATE_FILE = pathlib.Path(__file__).parent / "state.json"
+THRESHOLD_PCT = 1.0
+SYMBOL = "xyz:CL"
+DEX = "xyz"
+API = "https://api.hyperliquid.xyz/info"
+
+
+def get_price() -> float:
+    r = requests.post(API, json={"type": "metaAndAssetCtxs", "dex": DEX}, timeout=10)
+    r.raise_for_status()
+    meta, ctxs = r.json()
+    for i, u in enumerate(meta["universe"]):
+        if u["name"] == SYMBOL:
+            return float(ctxs[i]["markPx"])
+    raise RuntimeError(f"{SYMBOL} not in universe")
+
+
+def send_tg(msg: str) -> None:
+    token = os.environ["TG_TOKEN"]
+    chat_id = os.environ["TG_CHAT_ID"]
+    r = requests.post(
+        f"https://api.telegram.org/bot{token}/sendMessage",
+        json={"chat_id": chat_id, "text": msg, "parse_mode": "Markdown"},
+        timeout=10,
+    )
+    r.raise_for_status()
+
+
+def main() -> None:
+    price = get_price()
+    state = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {"last_price": price}
+    last = float(state["last_price"])
+    pct = (price - last) / last * 100.0
+
+    if abs(pct) >= THRESHOLD_PCT:
+        direction = "WZROST" if pct > 0 else "SPADEK"
+        msg = (
+            f"*WTI {direction}* `${price:.2f}` "
+            f"({pct:+.2f}% / 15min)\n"
+            f"Hyperliquid `xyz:CL`"
+        )
+        send_tg(msg)
+        print(f"ALERT sent: {pct:+.2f}% {last:.2f} -> {price:.2f}")
+    else:
+        print(f"OK: {pct:+.2f}% {last:.2f} -> {price:.2f} (below {THRESHOLD_PCT}%)")
+
+    state["last_price"] = price
+    state["last_ts"] = int(time.time())
+    STATE_FILE.write_text(json.dumps(state, indent=2))
+
+
+if __name__ == "__main__":
+    main()

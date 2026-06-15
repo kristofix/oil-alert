@@ -1,0 +1,20 @@
+name: Hormuz sample message (jednorazowy test)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sample:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wyślij przykładową wiadomość o zmianie na Telegram
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: |
+          resp=$(curl -sS -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TG_CHAT_ID}" \
+            --data-urlencode "parse_mode=Markdown" \
+            --data-urlencode $'text=🚢 *Hormuz — przekroczenia 24h*\n`5` → `6`  (Δ +1)\ninbound 2 / outbound 4 · w cieśninie 54\n\n_(test — przykład, nie realna zmiana)_')
+          echo "$resp"
+          echo "$resp" | grep -q '"ok":true' && echo "TG_SENT_OK" || { echo "TG_FAILED"; exit 1; }

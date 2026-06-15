@@ -23,19 +23,28 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install requests
-      - name: Poll price
+      - name: Poll price (WTI)
+        continue-on-error: true  # awaria źródła nie może zerwać łańcucha
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
         run: python alert.py
-      - name: Persist state.json
+      - name: Monitor Hormuz crossings (~20 min)
+        continue-on-error: true
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: python hormuz.py
+      - name: Persist state
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git pull --rebase --autostash origin main || true
           git add state.json
+          [ -f hormuz_state.json ] && git add hormuz_state.json || true
           git diff --staged --quiet || (git commit -m "state: $(date -u +%FT%TZ)" && git push)
       - name: Chain next poll (~2 min)
+        if: always()  # łańcuch ciągnie się nawet, gdyby wcześniejszy krok padł
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

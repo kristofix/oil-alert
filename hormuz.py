@@ -46,12 +46,7 @@ def main() -> None:
         state["last_crossings"] = crossings
 
         if prev is None:
-            send_tg(
-                f"🚢 *Hormuz monitor uruchomiony*\n"
-                f"Total Crossings 24h = `{crossings}`\n"
-                f"inbound {inb} / outbound {outb} · w cieśninie {ins}"
-            )
-            print(f"INIT baseline={crossings}")
+            print(f"INIT baseline={crossings} (cicho — bez wiadomości startowej)")
         elif crossings != int(prev):
             d = crossings - int(prev)
             send_tg(

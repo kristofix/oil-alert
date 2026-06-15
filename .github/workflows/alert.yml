@@ -2,7 +2,7 @@ name: WTI Oil Alert
 
 on:
   schedule:
-    - cron: '*/15 * * * *'  # fallback gdyby pinger padł
+    - cron: '*/15 * * * *'  # siatka bezpieczeństwa: wskrzesza łańcuch, gdyby się urwał
   workflow_dispatch:
   repository_dispatch:
     types: [poll-price]
@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   group: oil-alert
-  cancel-in-progress: false
+  cancel-in-progress: false  # nie zabijaj trwającego polla; nadmiarowe runy kolejkują się do 1
 
 jobs:
   alert:
@@ -23,7 +23,8 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install requests
-      - env:
+      - name: Poll price
+        env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
         run: python alert.py
@@ -31,5 +32,12 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase --autostash origin main || true
           git add state.json
           git diff --staged --quiet || (git commit -m "state: $(date -u +%FT%TZ)" && git push)
+      - name: Chain next poll (~2 min)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sleep 100
+          gh api --method POST "/repos/${{ github.repository }}/dispatches" -f event_type=poll-price

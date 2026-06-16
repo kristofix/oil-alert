@@ -1,5 +1,11 @@
 {
+<<<<<<< Updated upstream
   "last_price": 75.834,
   "last_ts": 1778340976,
   "last_alert_ts": 1781636756
+=======
+  "last_price": 75.918,
+  "last_ts": 1778340976,
+  "last_alert_ts": 1781636876
+>>>>>>> Stashed changes
 }

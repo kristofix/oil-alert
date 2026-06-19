@@ -39,10 +39,31 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git pull --rebase --autostash origin main || true
-          git add state.json
-          [ -f hormuz_state.json ] && git add hormuz_state.json || true
-          git diff --staged --quiet || (git commit -m "state: $(date -u +%FT%TZ)" && git push)
+          git add -A
+          if git diff --staged --quiet; then
+            echo "no state change"; exit 0
+          fi
+          # snapshot our freshly-computed state, then rebuild on top of remote WITHOUT a 3-way
+          # merge — reset --hard + overlay can never produce conflict markers (the old autostash
+          # pop did, which corrupted the JSON and silently killed both alerts).
+          cp state.json /tmp/s.json
+          [ -f hormuz_state.json ] && cp hormuz_state.json /tmp/h.json || true
+          for i in 1 2 3 4 5; do
+            git fetch -q origin main || true
+            git reset -q --hard origin/main
+            cp /tmp/s.json state.json
+            [ -f /tmp/h.json ] && cp /tmp/h.json hormuz_state.json || true
+            git add -A
+            if git diff --staged --quiet; then
+              echo "state already current on remote"; exit 0
+            fi
+            git commit -q -m "state: $(date -u +%FT%TZ)"
+            if git push -q origin main; then
+              echo "pushed (attempt $i)"; exit 0
+            fi
+            echo "push race, retry $i"
+          done
+          echo "WARN: could not push state after retries"
       - name: Chain next poll (~2 min)
         if: always()  # łańcuch ciągnie się nawet, gdyby wcześniejszy krok padł
         env:

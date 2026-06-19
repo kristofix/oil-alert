@@ -26,9 +26,18 @@ def send_tg(msg: str) -> None:
     r.raise_for_status()
 
 
+def load_state() -> dict:
+    """Tolerate a missing/corrupt state file (e.g. git merge-conflict markers) — treat as fresh."""
+    try:
+        return json.loads(STATE_FILE.read_text())
+    except (OSError, ValueError) as e:
+        print(f"WARN: state nieczytelny ({e}) — reset baseline")
+        return {}
+
+
 def main() -> None:
     now = int(time.time())
-    state = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}
+    state = load_state()
 
     elapsed = now - int(state.get("last_poll_ts", 0))
     if state and elapsed < POLL_INTERVAL_SEC:

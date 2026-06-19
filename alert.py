@@ -32,10 +32,19 @@ def send_tg(msg: str) -> None:
     r.raise_for_status()
 
 
+def load_state(default: dict) -> dict:
+    """Tolerate a missing/corrupt state file (e.g. git merge-conflict markers) — treat as fresh."""
+    try:
+        return json.loads(STATE_FILE.read_text())
+    except (OSError, ValueError) as e:
+        print(f"WARN: state nieczytelny ({e}) — reset baseline")
+        return default
+
+
 def main() -> None:
     price = get_price()
-    state = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {"last_price": price}
-    anchor = float(state["last_price"])
+    state = load_state({"last_price": price})
+    anchor = float(state.get("last_price", price))
     pct = (price - anchor) / anchor * 100.0
 
     if abs(pct) >= THRESHOLD_PCT:

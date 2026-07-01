@@ -5,7 +5,6 @@ import pathlib
 import requests
 
 STATE_FILE = pathlib.Path(__file__).parent / "state.json"
-THRESHOLD_PCT = 0.7
 SYMBOL = "xyz:CL"
 DEX = "xyz"
 API = "https://api.hyperliquid.xyz/info"
@@ -46,21 +45,18 @@ def main() -> None:
     state = load_state({"last_price": price})
     anchor = float(state.get("last_price", price))
     pct = (price - anchor) / anchor * 100.0
+    delta = price - anchor
 
-    if abs(pct) >= THRESHOLD_PCT:
-        direction = "WZROST" if pct > 0 else "SPADEK"
-        msg = (
-            f"*WTI {direction}* `${price:.2f}` "
-            f"({pct:+.2f}% vs anchor `${anchor:.2f}`)\n"
-            f"Hyperliquid `xyz:CL`"
-        )
-        send_tg(msg)
-        state["last_price"] = price
-        state["last_alert_ts"] = int(time.time())
-        print(f"ALERT sent: {pct:+.2f}% {anchor:.2f} -> {price:.2f}")
-    else:
-        print(f"OK: {pct:+.2f}% (anchor {anchor:.2f}, now {price:.2f}, below {THRESHOLD_PCT}%)")
+    arrow = "↑" if pct > 0 else ("↓" if pct < 0 else "→")
+    msg = (
+        f"*WTI* `${price:.2f}` {arrow} `{pct:+.2f}%` (Δ `{delta:+.2f}` vs `${anchor:.2f}`)\n"
+        f"Hyperliquid `xyz:CL`"
+    )
+    send_tg(msg)
+    print(f"Sent: {pct:+.2f}% {anchor:.2f} -> {price:.2f}")
 
+    state["last_price"] = price
+    state["last_alert_ts"] = int(time.time())
     STATE_FILE.write_text(json.dumps(state, indent=2))
 
 

@@ -2,17 +2,11 @@ name: WTI Oil Alert
 
 on:
   schedule:
-    - cron: '*/15 * * * *'  # siatka bezpieczeństwa: wskrzesza łańcuch, gdyby się urwał
+    - cron: '0 5,13,20 * * *'  # 07:00, 15:00, 22:00 PL (CEST=UTC+2); zimą zmień na 0 6,14,21
   workflow_dispatch:
-  repository_dispatch:
-    types: [poll-price]
 
 permissions:
   contents: write
-
-concurrency:
-  group: oil-alert
-  cancel-in-progress: false  # nie zabijaj trwającego polla; nadmiarowe runy kolejkują się do 1
 
 jobs:
   alert:
@@ -24,12 +18,12 @@ jobs:
           python-version: '3.11'
       - run: pip install requests
       - name: Poll price (WTI)
-        continue-on-error: true  # awaria źródła nie może zerwać łańcucha
+        continue-on-error: true
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
         run: python alert.py
-      - name: Monitor Hormuz crossings (~20 min)
+      - name: Monitor Hormuz crossings
         continue-on-error: true
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
@@ -43,9 +37,6 @@ jobs:
           if git diff --staged --quiet; then
             echo "no state change"; exit 0
           fi
-          # snapshot our freshly-computed state, then rebuild on top of remote WITHOUT a 3-way
-          # merge — reset --hard + overlay can never produce conflict markers (the old autostash
-          # pop did, which corrupted the JSON and silently killed both alerts).
           cp state.json /tmp/s.json
           [ -f hormuz_state.json ] && cp hormuz_state.json /tmp/h.json || true
           for i in 1 2 3 4 5; do
@@ -64,10 +55,3 @@ jobs:
             echo "push race, retry $i"
           done
           echo "WARN: could not push state after retries"
-      - name: Chain next poll (~2 min)
-        if: always()  # łańcuch ciągnie się nawet, gdyby wcześniejszy krok padł
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          sleep 100
-          gh api --method POST "/repos/${{ github.repository }}/dispatches" -f event_type=poll-price

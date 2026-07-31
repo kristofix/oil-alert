@@ -2,8 +2,14 @@ name: WTI Oil Alert
 
 on:
   schedule:
-    - cron: '0 5,13,20 * * *'  # 07:00, 15:00, 22:00 PL (CEST=UTC+2); zimą zmień na 0 6,14,21
+    # poll co 15 min; TG tylko przy |Δ| ≥ $1 (logika w alert.py)
+    - cron: '*/15 * * * *'
   workflow_dispatch:
+    inputs:
+      sample:
+        description: "Wyślij przykładowy alert (bez zmiany state)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -17,18 +23,12 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install requests
-      - name: Poll price (WTI)
-        continue-on-error: true
+      - name: Check price + maybe alert
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          SAMPLE: ${{ github.event.inputs.sample || 'false' }}
         run: python alert.py
-      - name: Monitor Hormuz crossings
-        continue-on-error: true
-        env:
-          TG_TOKEN: ${{ secrets.TG_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        run: python hormuz.py
       - name: Persist state
         run: |
           git config user.name "github-actions[bot]"
@@ -38,12 +38,10 @@ jobs:
             echo "no state change"; exit 0
           fi
           cp state.json /tmp/s.json
-          [ -f hormuz_state.json ] && cp hormuz_state.json /tmp/h.json || true
           for i in 1 2 3 4 5; do
             git fetch -q origin main || true
             git reset -q --hard origin/main
             cp /tmp/s.json state.json
-            [ -f /tmp/h.json ] && cp /tmp/h.json hormuz_state.json || true
             git add -A
             if git diff --staged --quiet; then
               echo "state already current on remote"; exit 0

@@ -1,48 +1,26 @@
 # WTI Oil Alert (Hyperliquid → Telegram)
 
-Powiadomienia o ruchu ceny WTI (`xyz:CL`) na Hyperliquid 24/7. Trigger co 2 min (cron-job.org → GH webhook), alert gdy `|Δ| ≥ 0.7%` vs poprzedni check. GH cron 15 min jako fallback.
+Jedna wiadomość TG **tylko** gdy cena WTI (`xyz:CL`) zmieni się o **≥ $1** vs ostatni alert.
+W tej samej wiadomości: cena + przepłynięcia cieśniny Ormuz.
 
-## Setup (jednorazowy)
+## Logika
+1. GitHub Actions poll co **15 min**
+2. Porównanie z `last_price` w `state.json`
+3. Jeśli `|Δ| < $1` → cisza (tylko update `last_check_ts`)
+4. Jeśli `|Δ| ≥ $1` → fetch Hormuz + **1 wiadomość** (cena + crossings), nowy anchor = bieżąca cena
 
-### 1. Bot Telegram
-```
-@BotFather → /newbot → skopiuj TOKEN
-napisz cokolwiek do swojego bota
-otwórz: https://api.telegram.org/bot<TOKEN>/getUpdates
-skopiuj "chat":{"id": LICZBA} → CHAT_ID
-```
-
-### 2. Push do GitHub
+## Setup
 ```bash
-cd /home/l/Dokumenty/cursor/oil_alert
-git init && git add . && git commit -m "init"
-gh repo create oil-alert --private --source=. --push
-```
+# sekrety
+gh secret set TG_TOKEN -b "..."
+gh secret set TG_CHAT_ID -b "..."
 
-### 3. Sekrety w GitHub
-```bash
-gh secret set TG_TOKEN -b "1234567:ABC..."
-gh secret set TG_CHAT_ID -b "123456789"
-```
-
-### 4. Test ręczny
-```bash
-gh workflow run alert.yml
-gh run watch
-```
-
-## Konfiguracja
-- `THRESHOLD_PCT` w `alert.py` — próg w % (default 1.0)
-- Cron `*/15 * * * *` w `.github/workflows/alert.yml` — interwał
-
-## Test lokalny
-```bash
+# test
 TG_TOKEN=... TG_CHAT_ID=... python alert.py
+gh workflow run alert.yml
 ```
 
-## Limity
-- GitHub Actions: 2000 min/mc free (private), unlimited (public). Job ~30s × 96/dzień ≈ 48 min/dzień ≈ **24h/mc**. Spokojnie.
-- Cron GitHub miewa opóźnienia 1-15 min — alert "co 15 min" w praktyce ~15-20 min.
-
-## Zmiana symbolu
-Inne perpy z dexa "xyz" (HIP-3): `xyz:BRENTOIL`, `xyz:NATGAS`, `xyz:COPPER`, `xyz:DXY`, `xyz:EUR`, `xyz:CORN`, etc. Edytuj `SYMBOL` w `alert.py`.
+## Pliki
+- `alert.py` — cena + Hormuz + TG
+- `state.json` — anchor ceny i crossings
+- `hormuz.py` — stary osobny skrypt (nieużywany w workflow)

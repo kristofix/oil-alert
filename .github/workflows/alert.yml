@@ -1,55 +1,92 @@
 name: WTI Oil Alert
 
+# Poll co 15 min BEZ lokalnego PC:
+# jeden job trzyma runner ~6h i w pętli sprawdza cenę co 15 min.
+# schedule co 4h restartuje łańcuch (GHA cron bywa opóźniony — pętla to omija).
 on:
   schedule:
-    # poll co 15 min; TG tylko przy |Δ| ≥ $1 (logika w alert.py)
-    - cron: '*/15 * * * *'
+    - cron: '7 */4 * * *'
   workflow_dispatch:
     inputs:
       sample:
         description: "Wyślij przykładowy alert (bez zmiany state)"
         type: boolean
         default: false
+      once:
+        description: "Tylko jeden poll (bez pętli 15 min)"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
 
+concurrency:
+  group: oil-alert-poll
+  # nowy schedule kasuje stary job i startuje świeżą pętlę 6h
+  cancel-in-progress: true
+
 jobs:
   alert:
     runs-on: ubuntu-latest
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - run: pip install requests
-      - name: Check price + maybe alert
+
+      - name: Poll (once or every 15 min for ~6h)
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-          SAMPLE: ${{ github.event.inputs.sample || 'false' }}
-        run: python alert.py
-      - name: Persist state
+          SAMPLE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.sample || 'false' }}
+          # schedule zawsze pętla; ręcznie: once=true (domyślnie) = 1 poll, once=false = pętla 6h
+          RUN_LOOP: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.once == 'false') }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          if git diff --staged --quiet; then
-            echo "no state change"; exit 0
-          fi
-          cp state.json /tmp/s.json
-          for i in 1 2 3 4 5; do
+          set -euo pipefail
+          chmod +x scripts/push_state.sh
+
+          poll_once() {
+            echo "=== poll $(date -u +%FT%TZ) ==="
             git fetch -q origin main || true
             git reset -q --hard origin/main
-            cp /tmp/s.json state.json
-            git add -A
-            if git diff --staged --quiet; then
-              echo "state already current on remote"; exit 0
+            python alert.py
+            bash scripts/push_state.sh
+          }
+
+          if [[ "${SAMPLE}" =~ ^(1|true|yes)$ ]]; then
+            python alert.py
+            echo "SAMPLE done (state nie ruszany)"
+            exit 0
+          fi
+
+          if [[ "${RUN_LOOP}" != "true" ]]; then
+            poll_once
+            exit 0
+          fi
+
+          # pętla ~5h 50m (timeout joba = 6h); co 15 min — PC niepotrzebny
+          DEADLINE=$((SECONDS + 5 * 3600 + 50 * 60))
+          n=0
+          while (( SECONDS < DEADLINE )); do
+            n=$((n + 1))
+            echo ">>> iteration $n  elapsed=${SECONDS}s"
+            poll_once || echo "WARN: poll_once exit $? — kontynuuję pętlę"
+            remaining=$((DEADLINE - SECONDS))
+            if (( remaining < 60 )); then
+              echo "deadline near — stop loop"
+              break
             fi
-            git commit -q -m "state: $(date -u +%FT%TZ)"
-            if git push -q origin main; then
-              echo "pushed (attempt $i)"; exit 0
+            sleep_for=900
+            if (( remaining < sleep_for + 30 )); then
+              sleep_for=$((remaining - 30))
             fi
-            echo "push race, retry $i"
+            if (( sleep_for > 0 )); then
+              echo "sleep ${sleep_for}s until next poll"
+              sleep "$sleep_for"
+            fi
           done
-          echo "WARN: could not push state after retries"
+          echo "loop finished after $n iterations"

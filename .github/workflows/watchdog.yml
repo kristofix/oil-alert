@@ -1,0 +1,99 @@
+name: oil-alert watchdog
+
+# Jeśli główna pętla padła i nikt jej nie podniósł — odpal ponownie.
+# Sam schedule GHA bywa spóźniony; ten job jest drugim bezpiecznikiem.
+on:
+  schedule:
+    - cron: '12,42 * * * *'   # 2× na godzinę (offset vs alert.yml)
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: oil-alert-watchdog
+  cancel-in-progress: true
+
+jobs:
+  ensure-running:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check alert.yml health + kick if needed
+        env:
+          GH_TOKEN: ${{ secrets.POLL_PAT }}
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          REPO: ${{ github.repository }}
+          # max ciszy zanim restart (minuty) — pętla polluje co 15 min
+          MAX_IDLE_MIN: "25"
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "ERROR: secrets.POLL_PAT missing — watchdog nie może odpalić workflow"
+            exit 1
+          fi
+
+          # Ostatnie runy głównego workflow
+          json=$(gh api "repos/${REPO}/actions/workflows/alert.yml/runs?per_page=15")
+
+          in_progress=$(echo "$json" | python3 -c "
+          import json,sys,datetime
+          d=json.load(sys.stdin)
+          now=datetime.datetime.now(datetime.timezone.utc)
+          max_idle=int('${MAX_IDLE_MIN}')
+          runs=d.get('workflow_runs',[])
+          active=0
+          newest_done=None
+          newest_any=None
+          for r in runs:
+              st=r.get('status')
+              # pomiń sample/once: nie da się pewnie, więc bierz wszystkie in_progress
+              if st in ('in_progress','queued','pending','waiting'):
+                  # długie pętle trwają godzinami
+                  active += 1
+              ts=r.get('updated_at') or r.get('created_at')
+              if ts:
+                  t=datetime.datetime.fromisoformat(ts.replace('Z','+00:00'))
+                  if newest_any is None or t>newest_any:
+                      newest_any=t
+                  if st=='completed' and (newest_done is None or t>newest_done):
+                      newest_done=t
+          idle_min=None
+          if newest_any is not None:
+              idle_min=(now-newest_any).total_seconds()/60.0
+          print(f'active={active}')
+          print(f'idle_min={idle_min if idle_min is not None else \"inf\"}')
+          need = active == 0 and (idle_min is None or idle_min >= max_idle)
+          # też kick gdy zero runów w historii
+          if not runs:
+              need=True
+          print(f'need_kick={str(need).lower()}')
+          ")
+
+          echo "$json" | python3 -c "import json,sys; d=json.load(sys.stdin); print('runs', len(d.get('workflow_runs',[])))"
+          echo "$in_progress"
+
+          active=$(echo "$in_progress" | sed -n 's/^active=//p')
+          need=$(echo "$in_progress" | sed -n 's/^need_kick=//p')
+          idle=$(echo "$in_progress" | sed -n 's/^idle_min=//p')
+
+          if [[ "$need" != "true" ]]; then
+            echo "OK: pętla żyje (active=$active idle_min=$idle) — nic nie robię"
+            exit 0
+          fi
+
+          echo "KICK: brak aktywnego polla (active=$active idle_min=$idle) — startuję pętlę"
+          gh workflow run alert.yml --repo "$REPO" -f once=false -f sample=false
+
+          # cichy alert na TG (żeby wiedzieć o lukach)
+          if [[ -n "${TG_TOKEN:-}" && -n "${TG_CHAT_ID:-}" ]]; then
+            msg="🛟 *oil-alert watchdog*: brak aktywnego polla ~${idle} min — restart pętli"
+            curl -fsS -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+              --data-urlencode "chat_id=${TG_CHAT_ID}" \
+              --data-urlencode "text=${msg}" \
+              --data-urlencode "parse_mode=Markdown" \
+              >/dev/null || true
+          fi

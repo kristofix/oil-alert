@@ -1,7 +1,7 @@
 {
-  "last_price": 98.765,
+  "last_price": 100.25,
   "last_ts": 1778340976,
-  "last_alert_ts": 1789055572,
-  "last_crossings": 19,
-  "last_check_ts": 1789055572
+  "last_alert_ts": 1789064468,
+  "last_crossings": 22,
+  "last_check_ts": 1789064468
 }
